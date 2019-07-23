@@ -23,15 +23,14 @@ namespace simd
 		template<class Scalar, int Z, class SIMDTag> class SIMDArray                         : public AlignedArray<Scalar, Z> {};
 		template<class Scalar, int Z>                class SIMDArray<Scalar, Z, tag::Avx512> : public AlignedArrayAVX512<Scalar, Z> {};
 
-		template<template<class DataBatch> typename Algorithm, int Z, class Scalar, int THREADS, class SIMDTag = tag::Auto> class Dispatcher
+		template<template<class DataBatch> typename Algorithm, int Z, class Scalar, int THREADS, int RO = 64, class SIMDTag = tag::Auto> class Dispatcher
 		{
-			using ThreadBatch = typename SIMDArray<Scalar, Z / THREADS, SIMDTag>;
+			using ThreadBatch = typename SIMDArray<Scalar, RO, SIMDTag>;
 			std::vector<std::thread> workers;
 
 			SyncLine<THREADS> mBarrier;
 
 		public:
-			
 
 			class ExecutorMaster
 			{
@@ -65,77 +64,6 @@ namespace simd
 
 			void RunWorker(int t)
 			{
-				auto alg = std::make_unique<Algorithm<ThreadBatch>>();
-				//Algorithm<ThreadBatch> alg;
-				if (t == 0)
-				{
-					ExecutorMaster em{ this };
-					(*alg)(&em);
-				}
-				else
-				{
-					ExecutorSlave es{ this };
-					(*alg)(&es);
-				}
-			}
-
-			void Run()
-			{
-				for (int t = 0; t < THREADS; ++t)
-				{
-					workers.emplace_back(&Dispatcher::RunWorker, this, t);
-				}
-
-				for (auto& w : workers)
-				{
-					w.join();
-				}
-				
-				workers.clear();
-			}
-		};
-
-		template<template<class DataBatch> typename Algorithm, int Z, class Scalar, int THREADS, int RO = 64, class SIMDTag = tag::Auto> class DispatcherRO
-		{
-			using ThreadBatch = typename SIMDArray<Scalar, RO, SIMDTag>;
-			std::vector<std::thread> workers;
-
-			SyncLine<THREADS> mBarrier;
-
-		public:
-
-			class ExecutorMaster
-			{
-				DispatcherRO *pOwner;
-			public:
-				ExecutorMaster(DispatcherRO* pO) : pOwner(pO) {}
-
-				template<class F> void SyncAndRun(const F& func)
-				{
-					pOwner->mBarrier.WaitMaster();
-					func();
-					pOwner->mBarrier.ReleaseMaster();
-				}
-			};
-
-			class ExecutorSlave
-			{
-				DispatcherRO *pOwner;
-			public:
-				ExecutorSlave(DispatcherRO* pO) : pOwner(pO) {}
-
-				template<class F> void SyncAndRun(const F& func)
-				{
-					pOwner->mBarrier.WaitSlave();
-				}
-			};
-
-		public:
-			DispatcherRO()
-			{}
-
-			void RunWorker(int t)
-			{
 				for (int i = 0; i < (Z / (THREADS*RO)); ++i)
 				{
 					auto alg = std::make_unique<Algorithm<ThreadBatch>>();
@@ -157,7 +85,7 @@ namespace simd
 			{
 				for (int t = 0; t < THREADS; ++t)
 				{
-					workers.emplace_back(&DispatcherRO::RunWorker, this, t);
+					workers.emplace_back(&Dispatcher::RunWorker, this, t);
 				}
 
 				for (auto& w : workers)
