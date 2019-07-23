@@ -8,6 +8,9 @@
 #include <thread>
 #include "sync_line.hpp"
 
+#include <functional>
+#include <type_traits>
+
 namespace simd
 {
 	namespace tag
@@ -15,6 +18,11 @@ namespace simd
 		struct Auto {};    // Default vectorization: #pragma omp simd
 		struct Avx512 {};  // Force AVX512 via intrinsics
 	}
+
+	class Step_Parallel {};
+	class Step_Singlethreaded {};
+
+	template<int STEP, class Tag = Step_Parallel> class StepTag{};
 
 	namespace cpu
 	{
@@ -30,55 +38,61 @@ namespace simd
 
 			SyncLine<THREADS> mBarrier;
 
+			std::vector<std::function<int(int t, std::vector<Algorithm<ThreadBatch>>& alg)>> mSteps;
 		public:
 
-			class ExecutorMaster
+			template<int STEP> decltype(((Algorithm<ThreadBatch>*)nullptr)->operator()(StepTag<STEP, Step_Parallel>{}))
+				RunStep(int t, std::vector<Algorithm<ThreadBatch>>& alg)
 			{
-				Dispatcher *pOwner;
-			public:
-				ExecutorMaster(Dispatcher* pO) : pOwner(pO) {}
-
-				template<class F> void SyncAndRun(const F& func)
+				int res = 0;
+				for (int i = 0; i < (Z / (THREADS*RO)); ++i)
 				{
-					pOwner->mBarrier.WaitMaster();
-					func();
-					pOwner->mBarrier.ReleaseMaster();
+					res = alg[i](StepTag<STEP, Step_Parallel>{});
 				}
-			};
 
-			class ExecutorSlave
+				return res;
+			}
+
+			template<int STEP> decltype(((Algorithm<ThreadBatch>*)nullptr)->operator()(StepTag<STEP, Step_Singlethreaded>{}))
+				RunStep(int t, std::vector<Algorithm<ThreadBatch>>& alg)
 			{
-				Dispatcher *pOwner;
-			public:
-				ExecutorSlave(Dispatcher* pO) : pOwner(pO) {}
-
-				template<class F> void SyncAndRun(const F& func)
+				int res = 0;
+				if (t == 0)
 				{
-					pOwner->mBarrier.WaitSlave();
+					mBarrier.WaitMaster();
+					res = alg[i](StepTag<STEP, Step_Singlethreaded>{});
+					mBarrier.ReleaseMaster();
 				}
-			};
-
-		public:
-			Dispatcher()
-			{}
+				else
+				{
+					mBarrier.WaitSlave();
+				}
+				return res;
+			}
 
 			void RunWorker(int t)
 			{
-				for (int i = 0; i < (Z / (THREADS*RO)); ++i)
+				std::vector<Algorithm<ThreadBatch>> alg((Z / (THREADS*RO)));
+				int step = 0;
+				while (step >= 0)
 				{
-					auto alg = std::make_unique<Algorithm<ThreadBatch>>();
-					//Algorithm<ThreadBatch> alg;
-					if (t == 0)
-					{
-						ExecutorMaster em{ this };
-						(*alg)(&em);
-					}
-					else
-					{
-						ExecutorSlave es{ this };
-						(*alg)(&es);
-					}
+					step = mSteps[step](t, alg);
 				}
+			}
+
+			template<int step> void FillSteps()
+			{
+				mSteps.push_back([this](int t, std::vector<Algorithm<ThreadBatch>>& alg)->int { return RunStep<step>(t, alg); });
+				FillSteps<step + 1>();
+			}
+
+			template<> void FillSteps<Algorithm<ThreadBatch>::MaxStep + 1>()
+			{}
+
+		public:
+			Dispatcher()
+			{
+				FillSteps<0>();
 			}
 
 			void Run()
