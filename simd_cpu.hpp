@@ -6,7 +6,7 @@
 #include "simd_array_avx512.hpp"
 
 #include <thread>
-#include <condition_variable>
+#include "sync_line.hpp"
 
 namespace simd
 {
@@ -28,51 +28,10 @@ namespace simd
 			using ThreadBatch = typename SIMDArray<Scalar, Z / THREADS, SIMDTag>;
 			std::vector<std::thread> workers;
 
-			std::mutex        m_slaves;
-			std::mutex        m_master;
-
-			std::condition_variable cv_slaves;
-			std::condition_variable cv_master;
-
-			int threads_waiting = 0;
-			bool master_ready = false;
+			SyncLine<THREADS> mBarrier;
 
 		public:
-			void WaitMaster()
-			{
-				m_slaves.lock();
-				std::unique_lock<std::mutex> lm(m_master);
-				threads_waiting++;
-				master_ready = false;
-				while (threads_waiting < THREADS)
-					cv_master.wait(lm);
-			}
-
-			void ReleaseMaster()
-			{
-				master_ready = true;
-				m_slaves.unlock();
-				cv_slaves.notify_all();
-			}
-
-			void WaitSlave()
-			{
-				m_master.lock();
-				threads_waiting++;
-				if (threads_waiting >= THREADS)
-				{
-					m_master.unlock();
-					cv_master.notify_one();
-				}
-				else
-				{
-					m_master.unlock();
-				}
-
-				std::unique_lock<std::mutex> ls(m_slaves);
-				while (!master_ready)
-					cv_slaves.wait(ls);
-			}
+			
 
 			class ExecutorMaster
 			{
@@ -82,9 +41,9 @@ namespace simd
 
 				template<class F> void SyncAndRun(const F& func)
 				{
-					pOwner->WaitMaster();
+					pOwner->mBarrier.WaitMaster();
 					func();
-					pOwner->ReleaseMaster();
+					pOwner->mBarrier.ReleaseMaster();
 				}
 			};
 
@@ -96,7 +55,7 @@ namespace simd
 
 				template<class F> void SyncAndRun(const F& func)
 				{
-					pOwner->WaitSlave();
+					pOwner->mBarrier.WaitSlave();
 				}
 			};
 
@@ -141,51 +100,9 @@ namespace simd
 			using ThreadBatch = typename SIMDArray<Scalar, RO, SIMDTag>;
 			std::vector<std::thread> workers;
 
-			std::mutex        m_slaves;
-			std::mutex        m_master;
-
-			std::condition_variable cv_slaves;
-			std::condition_variable cv_master;
-
-			int threads_waiting = 0;
-			bool master_ready = false;
+			SyncLine<THREADS> mBarrier;
 
 		public:
-			void WaitMaster()
-			{
-				m_slaves.lock();
-				std::unique_lock<std::mutex> lm(m_master);
-				threads_waiting++;
-				master_ready = false;
-				while (threads_waiting < THREADS)
-					cv_master.wait(lm);
-			}
-
-			void ReleaseMaster()
-			{
-				master_ready = true;
-				m_slaves.unlock();
-				cv_slaves.notify_all();
-			}
-
-			void WaitSlave()
-			{
-				m_master.lock();
-				threads_waiting++;
-				if (threads_waiting >= THREADS)
-				{
-					m_master.unlock();
-					cv_master.notify_one();
-				}
-				else
-				{
-					m_master.unlock();
-				}
-
-				std::unique_lock<std::mutex> ls(m_slaves);
-				while (!master_ready)
-					cv_slaves.wait(ls);
-			}
 
 			class ExecutorMaster
 			{
@@ -195,9 +112,9 @@ namespace simd
 
 				template<class F> void SyncAndRun(const F& func)
 				{
-					pOwner->WaitMaster();
+					pOwner->mBarrier.WaitMaster();
 					func();
-					pOwner->ReleaseMaster();
+					pOwner->mBarrier.ReleaseMaster();
 				}
 			};
 
@@ -209,7 +126,7 @@ namespace simd
 
 				template<class F> void SyncAndRun(const F& func)
 				{
-					pOwner->WaitSlave();
+					pOwner->mBarrier.WaitSlave();
 				}
 			};
 
