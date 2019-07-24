@@ -21,7 +21,8 @@ namespace simd
 
 	class Step_Parallel {};
 	class Step_Singlethreaded {};
-
+	class Step_Accumulate {};
+	
 	template<int STEP, class Tag = Step_Parallel> class StepTag{};
 
 	namespace cpu
@@ -39,6 +40,15 @@ namespace simd
 			SyncLine<THREADS> mBarrier;
 
 			std::vector<std::function<int(int t, std::vector<Algorithm<ThreadBatch>>& alg)>> mSteps;
+
+			class Accumulator
+			{
+			public:
+				void reduce(Scalar* dst, ThreadBatch* src)
+				{
+
+				}
+			};
 		public:
 
 			template<int STEP> decltype(((Algorithm<ThreadBatch>*)nullptr)->operator()(StepTag<STEP, Step_Parallel>{}))
@@ -60,13 +70,25 @@ namespace simd
 				if (t == 0)
 				{
 					mBarrier.WaitMaster();
-					res = alg[i](StepTag<STEP, Step_Singlethreaded>{});
+					res = alg[0](StepTag<STEP, Step_Singlethreaded>{});
 					mBarrier.ReleaseMaster();
 				}
 				else
 				{
 					mBarrier.WaitSlave();
 				}
+				return res;
+			}
+
+			template<int STEP> decltype(((Algorithm<ThreadBatch>*)nullptr)->operator()(StepTag<STEP, Step_Accumulate>{}, (Accumulator*)nullptr))
+				RunStep(int t, std::vector<Algorithm<ThreadBatch>>& alg)
+			{
+				int res = 0;
+				for (int i = 0; i < (Z / (THREADS*RO)); ++i)
+				{
+					res = alg[i](StepTag<STEP, Step_Accumulate>{}, nullptr);
+				}
+
 				return res;
 			}
 
