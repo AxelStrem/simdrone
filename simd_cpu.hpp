@@ -10,9 +10,12 @@
 
 #include <functional>
 #include <type_traits>
+#include <array>
 
 namespace simd
 {
+	template<class T> using int_t = int;
+
 	namespace tag
 	{
 		struct Auto {};    // Default vectorization: #pragma omp simd
@@ -22,6 +25,13 @@ namespace simd
 	class Step_Parallel {};
 	class Step_Singlethreaded {};
 	class Step_Accumulate {};
+
+	template<class DataBatch> struct Fold
+	{
+		int next_step;
+		DataBatch*                         merge_source;
+		typename DataBatch::ScalarType*    merge_target;
+	};
 	
 	template<int STEP, class Tag = Step_Parallel> class StepTag{};
 
@@ -38,7 +48,7 @@ namespace simd
 			std::vector<std::thread> workers;
 
 			SyncLine<THREADS> mBarrier;
-
+			std::array<ThreadBatch*, THREADS> merge_pointers;
 
 			struct SlaveSet
 			{
@@ -64,27 +74,66 @@ namespace simd
 			};
 		public:
 
-			template<int STEP> decltype(((Algorithm<ThreadBatch>*)nullptr)->operator()(StepTag<STEP, Step_Parallel>{}))
-				RunStep(int t, SlaveSet* set)
+			template<int STEP> int_t<decltype(((Algorithm<ThreadBatch>*)nullptr)->operator()(StepTag<STEP, Step_Parallel>{}))> RunStep(int t, SlaveSet* set)
 			{
-				int res = 0;
-				for (auto& instance : set->alg)
+				using ret_type = decltype(((Algorithm<ThreadBatch>*)nullptr)->operator()(StepTag<STEP, Step_Parallel>{}));
+				if constexpr (std::is_same<ret_type, Fold<ThreadBatch>>::value)
 				{
-					res = instance(StepTag<STEP, Step_Parallel>{});
+					ret_type res = set->alg[0](StepTag<STEP, Step_Parallel>{});
+					for (int i = 1; i < (Z / (THREADS*RO)); ++i)
+					{
+						*(res.merge_source) += *(set->alg[i](StepTag<STEP, Step_Parallel>{}).merge_source);
+					}
+
+					merge_pointers[t] = res.merge_source;
+					mBarrier.WaitSlave();
+					return res.next_step;
 				}
-				return res;
+				else
+				{
+					ret_type res = 0;
+					for (auto& instance : set->alg)
+					{
+						res = instance(StepTag<STEP, Step_Parallel>{});
+					}
+					return res;
+				}
 			}
 
-			template<int STEP> decltype(((Algorithm<ThreadBatch>*)nullptr)->operator()(StepTag<STEP, Step_Parallel>{}))
-				RunStep(int t, MasterSet* set)
+			template<int STEP> int_t<decltype(((Algorithm<ThreadBatch>*)nullptr)->operator()(StepTag<STEP, Step_Parallel>{}))> RunStep(int t, MasterSet* set)
 			{
-				for (auto& instance : set->alg)
+				using ret_type = decltype(((Algorithm<ThreadBatch>*)nullptr)->operator()(StepTag<STEP, Step_Parallel>{}));
+				if constexpr (std::is_same<ret_type, Fold<ThreadBatch>>::value)
 				{
-					instance(StepTag<STEP, Step_Parallel>{});
-				}
-				return set->alg_master(StepTag<STEP, Step_Parallel>{});
-			}
+					ret_type res = set->alg[0](StepTag<STEP, Step_Parallel>{});
+					for (int i = 1; i < (Z / (THREADS*RO)); ++i)
+					{
+						*(res.merge_source) += *(set->alg[i](StepTag<STEP, Step_Parallel>{}).merge_source);
+					}
 
+					mBarrier.WaitMaster();
+
+					for (int tn = 1; tn < THREADS; tn++)
+					{
+						*(res.merge_source) += *(merge_pointers[tn]);
+					}
+
+					*(res.merge_target) = res.merge_source->fold();
+
+					mBarrier.ReleaseMaster();
+
+					return res.next_step;
+				}
+				else
+				{
+					for (auto& instance : set->alg)
+					{
+						instance(StepTag<STEP, Step_Parallel>{});
+					}
+					return set->alg_master(StepTag<STEP, Step_Parallel>{});
+				}
+			}
+			
 			template<int STEP> decltype(((Algorithm<ThreadBatch>*)nullptr)->operator()(StepTag<STEP, Step_Singlethreaded>{}))
 				RunStep(int t, SlaveSet* set)
 			{
@@ -97,7 +146,7 @@ namespace simd
 			{
 				int res = 0;
 				mBarrier.WaitMaster();
-				res = set->alg[0](StepTag<STEP, Step_Singlethreaded>{});
+				res = set->alg_master(StepTag<STEP, Step_Singlethreaded>{});
 				mBarrier.ReleaseMaster();
 				return res;
 			}

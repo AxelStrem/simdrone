@@ -46,6 +46,8 @@ namespace simd
 	{
 		Scalar data[Z];
 	public:
+		using ScalarType = Scalar;
+
 		const Scalar* begin() const
 		{
 			return data;
@@ -67,6 +69,13 @@ namespace simd
 		}
 
 		AlignedArray& operator=(const AlignedArray& rhs) = default;
+
+		Scalar fold() const
+		{
+			Scalar res{};
+			for (const Scalar& x : data) res += x;
+			return res;
+		}
 	};
 
 }

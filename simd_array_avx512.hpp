@@ -326,6 +326,8 @@ namespace simd
 	{
 		Scalar data[Z];
 	public:
+		using ScalarType = Scalar;
+
 		const Scalar* begin() const
 		{
 			return data;
@@ -347,6 +349,13 @@ namespace simd
 		}
 
 		AlignedArrayAVX512& operator=(const Scalar& rhs) { return ValArrayAVX512<AlignedArrayAVX512<Scalar, Z>, Scalar, Z>::operator=(rhs); };
+
+		Scalar fold() const
+		{
+			Scalar res{};
+			for (const Scalar& x : data) res += x;
+			return res;
+		}
 	};
 
 	template<class Scalar> class AlignedVectorAVX512 : public ValArrayAVX512<AlignedVectorAVX512<Scalar>, Scalar, 0>
@@ -354,6 +363,8 @@ namespace simd
 		Scalar* data;
 		int Z;
 	public:
+		using ScalarType = Scalar;
+
 		AlignedVectorAVX512(int sz) : Z(sz)
 		{  data = std::aligned_alloc(64, Z*sizeof(Scalar)); }
 
@@ -378,6 +389,13 @@ namespace simd
 		Scalar* end()
 		{
 			return data + Z;
+		}
+
+		Scalar fold() const
+		{
+			Scalar res{};
+			for (int i = 0; i < Z;++i) res += data[i];
+			return res;
 		}
 	};
 
