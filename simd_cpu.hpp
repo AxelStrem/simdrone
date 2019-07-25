@@ -32,15 +32,28 @@ namespace simd
 		template<class Scalar, int Z, class SIMDTag> class SIMDArray                         : public AlignedArray<Scalar, Z> {};
 		template<class Scalar, int Z>                class SIMDArray<Scalar, Z, tag::Avx512> : public AlignedArrayAVX512<Scalar, Z> {};
 
-		template<template<class DataBatch> typename Algorithm, int Z, class Scalar, int THREADS, int RO = 64, class SIMDTag = tag::Auto> class Dispatcher
+		template<template<class DataBatch> typename Algorithm, int Z, class Scalar, int THREADS, template<class DataBatch> typename AlgorithmPrimary = Algorithm, int RO = 64, class SIMDTag = tag::Auto> class Dispatcher
 		{
 			using ThreadBatch = typename SIMDArray<Scalar, RO, SIMDTag>;
 			std::vector<std::thread> workers;
 
 			SyncLine<THREADS> mBarrier;
 
-			std::vector<std::function<int(int t, std::vector<Algorithm<ThreadBatch>>& alg)>> mSteps;
 
+			struct SlaveSet
+			{
+				Algorithm<ThreadBatch> alg[Z / (THREADS*RO)];
+			};
+
+			struct MasterSet
+			{
+				Algorithm<ThreadBatch> alg[(Z / (THREADS*RO)) - 1];
+				AlgorithmPrimary<ThreadBatch> alg_master;
+			};
+
+			std::vector<std::function<int(int t, SlaveSet*)>> mStepsS;
+			std::vector<std::function<int(int t, MasterSet*)>> mStepsM;
+			
 			class Accumulator
 			{
 			public:
@@ -52,59 +65,80 @@ namespace simd
 		public:
 
 			template<int STEP> decltype(((Algorithm<ThreadBatch>*)nullptr)->operator()(StepTag<STEP, Step_Parallel>{}))
-				RunStep(int t, std::vector<Algorithm<ThreadBatch>>& alg)
+				RunStep(int t, SlaveSet* set)
 			{
 				int res = 0;
-				for (int i = 0; i < (Z / (THREADS*RO)); ++i)
+				for (auto& instance : set->alg)
 				{
-					res = alg[i](StepTag<STEP, Step_Parallel>{});
+					res = instance(StepTag<STEP, Step_Parallel>{});
 				}
-
 				return res;
 			}
 
+			template<int STEP> decltype(((Algorithm<ThreadBatch>*)nullptr)->operator()(StepTag<STEP, Step_Parallel>{}))
+				RunStep(int t, MasterSet* set)
+			{
+				for (auto& instance : set->alg)
+				{
+					instance(StepTag<STEP, Step_Parallel>{});
+				}
+				return set->alg_master(StepTag<STEP, Step_Parallel>{});
+			}
+
 			template<int STEP> decltype(((Algorithm<ThreadBatch>*)nullptr)->operator()(StepTag<STEP, Step_Singlethreaded>{}))
-				RunStep(int t, std::vector<Algorithm<ThreadBatch>>& alg)
+				RunStep(int t, SlaveSet* set)
+			{
+				mBarrier.WaitSlave();
+				return 0;
+			}
+
+			template<int STEP> decltype(((Algorithm<ThreadBatch>*)nullptr)->operator()(StepTag<STEP, Step_Singlethreaded>{}))
+				RunStep(int t, MasterSet* set)
 			{
 				int res = 0;
-				if (t == 0)
-				{
-					mBarrier.WaitMaster();
-					res = alg[0](StepTag<STEP, Step_Singlethreaded>{});
-					mBarrier.ReleaseMaster();
-				}
-				else
-				{
-					mBarrier.WaitSlave();
-				}
+				mBarrier.WaitMaster();
+				res = set->alg[0](StepTag<STEP, Step_Singlethreaded>{});
+				mBarrier.ReleaseMaster();
 				return res;
 			}
 
 			template<int STEP> decltype(((Algorithm<ThreadBatch>*)nullptr)->operator()(StepTag<STEP, Step_Accumulate>{}, (Accumulator*)nullptr))
-				RunStep(int t, std::vector<Algorithm<ThreadBatch>>& alg)
+				RunStep(int t, SlaveSet* set)
 			{
 				int res = 0;
 				for (int i = 0; i < (Z / (THREADS*RO)); ++i)
 				{
-					res = alg[i](StepTag<STEP, Step_Accumulate>{}, nullptr);
+					res = set->alg[i](StepTag<STEP, Step_Accumulate>{}, nullptr);
 				}
 
 				return res;
 			}
 
-			void RunWorker(int t)
+			void RunWorkerS(int t)
 			{
-				std::vector<Algorithm<ThreadBatch>> alg((Z / (THREADS*RO)));
+				auto alg = std::make_unique<SlaveSet>();
 				int step = 0;
 				while (step >= 0)
 				{
-					step = mSteps[step](t, alg);
+					step = mStepsS[step](t, alg.get());
+				}
+			}
+
+			void RunWorkerM(int t)
+			{
+				auto alg = std::make_unique<MasterSet>();
+				int step = 0;
+				while (step >= 0)
+				{
+					step = mStepsM[step](t, alg.get());
 				}
 			}
 
 			template<int step> void FillSteps()
 			{
-				mSteps.push_back([this](int t, std::vector<Algorithm<ThreadBatch>>& alg)->int { return RunStep<step>(t, alg); });
+				mStepsS.push_back([this](int t, SlaveSet* alg)->int { return RunStep<step>(t, alg); });
+				mStepsM.push_back([this](int t, MasterSet* alg)->int { return RunStep<step>(t, alg); });
+
 				FillSteps<step + 1>();
 			}
 
@@ -119,9 +153,11 @@ namespace simd
 
 			void Run()
 			{
-				for (int t = 0; t < THREADS; ++t)
+				workers.emplace_back(&Dispatcher::RunWorkerM, this, 0);
+
+				for (int t = 1; t < THREADS; ++t)
 				{
-					workers.emplace_back(&Dispatcher::RunWorker, this, t);
+					workers.emplace_back(&Dispatcher::RunWorkerS, this, t);
 				}
 
 				for (auto& w : workers)
