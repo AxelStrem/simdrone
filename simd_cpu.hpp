@@ -45,7 +45,10 @@ namespace simd
 		template<template<class DataBatch> typename Algorithm, int Z, class Scalar, int THREADS, template<class DataBatch> typename AlgorithmPrimary = Algorithm, int RO = 64, class SIMDTag = tag::Auto> class Dispatcher
 		{
 			using ThreadBatch = typename SIMDArray<Scalar, RO, SIMDTag>;
+			using SharedData = typename Algorithm<ThreadBatch>::Shared;
+
 			std::vector<std::thread> workers;
+			SharedData mShared;
 
 			SyncLine<THREADS> mBarrier;
 			std::array<ThreadBatch*, THREADS> merge_pointers;
@@ -166,6 +169,10 @@ namespace simd
 			void RunWorkerS(int t)
 			{
 				auto alg = std::make_unique<SlaveSet>();
+
+				for (auto& a : alg->alg)
+					a.init(&mShared);
+
 				int step = 0;
 				while (step >= 0)
 				{
@@ -176,6 +183,11 @@ namespace simd
 			void RunWorkerM(int t)
 			{
 				auto alg = std::make_unique<MasterSet>();
+
+				for (auto& a : alg->alg)
+					a.init(&mShared);
+				alg->alg_master.init(&mShared);
+
 				int step = 0;
 				while (step >= 0)
 				{

@@ -27,6 +27,7 @@ public:
 	void ReleaseMaster()
 	{
 		master_ready = true;
+		threads_waiting = 0;
 		m_slaves.unlock();
 		cv_slaves.notify_all();
 	}
