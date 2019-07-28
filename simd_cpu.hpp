@@ -52,6 +52,7 @@ namespace simd
 
 			SyncLine<THREADS> mBarrier;
 			std::array<ThreadBatch*, THREADS> merge_pointers;
+			int master_res = 0;
 
 			struct SlaveSet
 			{
@@ -141,17 +142,16 @@ namespace simd
 				RunStep(int t, SlaveSet* set)
 			{
 				mBarrier.WaitSlave();
-				return 0;
+				return master_res;
 			}
 
 			template<int STEP> decltype(((Algorithm<ThreadBatch>*)nullptr)->operator()(StepTag<STEP, Step_Singlethreaded>{}))
 				RunStep(int t, MasterSet* set)
 			{
-				int res = 0;
 				mBarrier.WaitMaster();
-				res = set->alg_master(StepTag<STEP, Step_Singlethreaded>{});
+				master_res = set->alg_master(StepTag<STEP, Step_Singlethreaded>{});
 				mBarrier.ReleaseMaster();
-				return res;
+				return master_res;
 			}
 
 			template<int STEP> decltype(((Algorithm<ThreadBatch>*)nullptr)->operator()(StepTag<STEP, Step_Accumulate>{}, (Accumulator*)nullptr))
