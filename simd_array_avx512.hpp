@@ -300,7 +300,7 @@ namespace simd
 			i1[12] = func(i1[12], i2[12]);
 			i1[13] = func(i1[13], i2[13]);
 			i1[14] = func(i1[14], i2[14]);
-			i1[15] = func(i1[14], i2[15]);
+			i1[15] = func(i1[15], i2[15]);
 			return *((Derived*)this);
 		}
 	};
