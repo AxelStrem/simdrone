@@ -23,6 +23,7 @@ namespace simd
 	}
 
 	class Step_Parallel {};
+	class Step_Separate {};
 	class Step_Singlethreaded {};
 	class Step_Accumulate {};
 	class Step_AccReset {};
@@ -42,6 +43,11 @@ namespace simd
 	};
 	
 	template<int STEP, class Tag = Step_Parallel> class StepTag{};
+	template<int STEP> struct StepTag<STEP, Step_Separate>
+	{
+		int offset_global;
+		int offset_local;
+	};
 
 	namespace cpu
 	{
@@ -217,6 +223,44 @@ namespace simd
 				return set->alg_master(StepTag<STEP, Step_AccReset>{});
 			}
 
+			template<int STEP> decltype(((Algorithm<ThreadBatch>*)nullptr)->operator()(StepTag<STEP, Step_Separate>{}))
+				RunStep(int t, SlaveSet* set, Accumulator* acc)
+			{
+				using ret_type = decltype(((Algorithm<ThreadBatch>*)nullptr)->operator()(StepTag<STEP, Step_Separate>{}));
+				ret_type res = 0;
+				int thread_offset = (Z / (THREADS*RO))*t;
+				for (int i=0; i < Z / (THREADS*RO); ++i)
+				{
+					for (int j = 0; j < RO; ++j)
+					{
+						res = set->alg[i](StepTag<STEP, Step_Separate>{ (thread_offset + i)*RO + j, j });
+					}
+				}
+				return res;
+			}
+
+			template<int STEP> decltype(((Algorithm<ThreadBatch>*)nullptr)->operator()(StepTag<STEP, Step_Separate>{}))
+				RunStep(int t, MasterSet* set, Accumulator* acc)
+			{
+				using ret_type = decltype(((Algorithm<ThreadBatch>*)nullptr)->operator()(StepTag<STEP, Step_Separate>{}));
+				ret_type res = 0;
+				int thread_offset = (Z / (THREADS*RO))*t;
+
+				for (int j = 0; j < RO; ++j)
+				{
+					res = set->alg_master(StepTag<STEP, Step_Separate>{ (thread_offset)*RO + j, j });
+				}
+
+				for (int i = 0; i < Z / (THREADS*RO) - 1; ++i)
+				{
+					for (int j = 0; j < RO; ++j)
+					{
+						set->alg[i](StepTag<STEP, Step_Separate>{ (thread_offset + i + 1)*RO + j, j });
+					}
+				}
+				return res;
+			}
+
 			void RunWorkerS(int t)
 			{
 				auto alg = std::make_unique<SlaveSet>();
@@ -264,6 +308,8 @@ namespace simd
 			{
 				FillSteps<0>();
 			}
+
+			SharedData& Shared() { return mShared; }
 
 			void Run()
 			{

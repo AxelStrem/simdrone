@@ -71,6 +71,12 @@ namespace simd
 			__m512d operator()(const __m512d a, const __m512d b) const { return _mm512_div_pd(a, b); }
 		};
 
+		struct divides_rev
+		{
+			__m512  operator()(const __m512  a, const __m512  b) const { return _mm512_div_ps(b, a); }
+			__m512d operator()(const __m512d a, const __m512d b) const { return _mm512_div_pd(b, a); }
+		};
+
 		struct fill
 		{
 			__m512  operator()(const __m512  a, const __m512  b) const { return b; }
@@ -83,6 +89,58 @@ namespace simd
 			__m512  operator()(const __m512  a) const { __m512  zero{};  return _mm512_sub_ps(zero, a); }
 			__m512d operator()(const __m512d a) const { __m512d zero{};  return _mm512_sub_pd(zero, a); }
 			__m512i operator()(const __m512i a) const { __m512i zero{};  return _mm512_sub_epi32(zero, a); }
+		};
+
+		struct exp2
+		{
+			__m512  operator()(const __m512  a) const
+			{ 
+				return _mm512_exp2a23_ps(a);
+			}
+			__m512d operator()(const __m512d a) const 
+			{
+				return _mm512_exp2a23_pd(a);
+			}
+		};
+
+		struct abs
+		{
+			__m512  operator()(const __m512  a) const  { return _mm512_abs_ps(a);  }
+			__m512d operator()(const __m512d a) const  { return _mm512_abs_pd(a);  }
+		};
+
+		struct clip_positive
+		{
+			__m512  operator()(const __m512  a) const 
+			{
+				__mmask16 mask = _mm512_fpclass_ps_mask(a, 0x40);
+				constexpr __m512 zero{};
+				return _mm512_mask_mov_ps(a, mask, zero);
+			}
+			__m512d  operator()(const __m512d  a) const
+			{
+				__mmask8 mask = _mm512_fpclass_pd_mask(a, 0x40);
+				constexpr __m512d zero{};
+				return _mm512_mask_mov_pd(a,mask,zero);
+			}
+		};
+
+		struct sign_positive
+		{
+			__m512  operator()(const __m512  a) const
+			{
+				__mmask16 mask = _mm512_fpclass_ps_mask(a, 0x40);
+				constexpr __m512 zero{};
+				constexpr __m512 ones{1.f,1.f, 1.f, 1.f, 1.f, 1.f, 1.f, 1.f, 1.f, 1.f, 1.f, 1.f, 1.f, 1.f, 1.f, 1.f};
+				return _mm512_mask_mov_ps(ones, mask, zero);
+			}
+			__m512d  operator()(const __m512d  a) const
+			{
+				__mmask8 mask = _mm512_fpclass_pd_mask(a, 0x40);
+				constexpr __m512d zero{};
+				constexpr __m512d ones{ 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0 };
+				return _mm512_mask_mov_pd(ones, mask, zero);
+			}
 		};
 	}
 
@@ -308,18 +366,41 @@ namespace simd
 	template<class Derived, class Scalar, int Z> class ValArrayAVX512 : public ValArrayAVX512_Unrolled<Derived, Scalar, Z*sizeof(Scalar)>
 	{
 	public:
+		Derived clone() const { return Derived{*(reinterpret_cast<const Derived*>(this))}; }
+
 		__forceinline Derived& operator+=(const Derived& rhs) { return this->zip(rhs, avx512::plus{}); }
 		__forceinline Derived& operator-=(const Derived& rhs) { return this->zip(rhs, avx512::minus{}); }
 		__forceinline Derived& operator*=(const Derived& rhs) { return this->zip(rhs, avx512::multiplies{}); }
 		__forceinline Derived& operator/=(const Derived& rhs) { return this->zip(rhs, avx512::divides{}); }
-
-		__forceinline Derived& operator-() { return this->apply(avx512::negate{}); }
+		
+		__forceinline Derived& operator-() const { return const_cast<ValArrayAVX512*>(this)->apply(avx512::negate{}); }
 
 		__forceinline Derived& operator=(const Scalar& rhs) { return this->zips(rhs, avx512::fill{}); }
 		__forceinline Derived& operator+=(const Scalar& rhs) { return this->zips(rhs, avx512::plus{}); }
 		__forceinline Derived& operator-=(const Scalar& rhs) { return this->zips(rhs, avx512::minus{}); }
 		__forceinline Derived& operator*=(const Scalar& rhs) { return this->zips(rhs, avx512::multiplies{}); }
 		__forceinline Derived& operator/=(const Scalar& rhs) { return this->zips(rhs, avx512::divides{}); }
+
+		__forceinline Derived operator+(const Derived& rhs) const { return clone() += rhs; }
+		__forceinline Derived operator-(const Derived& rhs) const { return clone() -= rhs; }
+		__forceinline Derived operator*(const Derived& rhs) const { return clone() *= rhs; }
+		__forceinline Derived operator/(const Derived& rhs) const { return clone() /= rhs; }
+		
+		__forceinline Derived operator+(const Scalar& rhs) const { return clone() += rhs; }
+		__forceinline Derived operator-(const Scalar& rhs) const { return clone() -= rhs; }
+		__forceinline Derived operator*(const Scalar& rhs) const { return clone() *= rhs; }
+		__forceinline Derived operator/(const Scalar& rhs) const { return clone() /= rhs; }
+		__forceinline Derived& inverse(const Scalar& rhs) const { return clone().zips(rhs, avx512::divides_rev{}); }
+
+		friend Derived operator*(const Scalar& lhs, const Derived& rhs) { return rhs * lhs; }
+		friend Derived operator-(const Scalar& lhs, const Derived& rhs) { return -rhs + lhs; }
+		friend Derived operator+(const Scalar& lhs, const Derived& rhs) { return rhs + lhs; }
+		friend Derived operator/(const Scalar& lhs, const Derived& rhs) { return rhs.inverse(lhs); }
+		
+		friend Derived exp2(const Derived& x) { return x.clone().apply(avx512::exp2{}); }
+		friend Derived clip_positive(const Derived& x) { return x.clone().apply(avx512::clip_positive{}); }
+		friend Derived sign_positive(const Derived& x) { return x.clone().apply(avx512::sign_positive{}); }
+		friend Derived abs(const Derived& x) { return x.clone().apply(avx512::abs{}); }
 	};
 
 	template<class Scalar, int Z> class alignas(64) AlignedArrayAVX512 : public ValArrayAVX512<AlignedArrayAVX512<Scalar, Z>, Scalar, Z>
@@ -355,6 +436,11 @@ namespace simd
 			Scalar res{};
 			for (const Scalar& x : data) res += x;
 			return res;
+		}
+
+		Scalar& operator[](int index)
+		{
+			return data[index];
 		}
 	};
 
@@ -396,6 +482,11 @@ namespace simd
 			Scalar res{};
 			for (int i = 0; i < Z;++i) res += data[i];
 			return res;
+		}
+
+		Scalar& operator[](int index)
+		{
+			return data[index];
 		}
 	};
 
