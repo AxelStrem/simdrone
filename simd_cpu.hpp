@@ -2,6 +2,7 @@
 #include <vector>
 #include <memory>
 
+#include "simd.hpp"
 #include "simd_array.hpp"
 #include "simd_array_avx512.hpp"
 
@@ -21,33 +22,6 @@ namespace simd
 		struct Auto {};    // Default vectorization: #pragma omp simd
 		struct Avx512 {};  // Force AVX512 via intrinsics
 	}
-
-	class Step_Parallel {};
-	class Step_Separate {};
-	class Step_Singlethreaded {};
-	class Step_Accumulate {};
-	class Step_AccReset {};
-
-	template<class DataBatch> struct Fold
-	{
-		int next_step;
-		DataBatch*                         merge_source;
-		typename DataBatch::ScalarType*    merge_target;
-	};
-
-	template<class DataBatch> struct FoldAcc
-	{
-		int next_step;
-		DataBatch*                         merge_source;
-		typename DataBatch::ScalarType*    merge_target;
-	};
-	
-	template<int STEP, class Tag = Step_Parallel> class StepTag{};
-	template<int STEP> struct StepTag<STEP, Step_Separate>
-	{
-		int offset_global;
-		int offset_local;
-	};
 
 	namespace cpu
 	{
@@ -117,12 +91,27 @@ namespace simd
 					}
 					else
 					{
-						ret_type res = 0;
-						for (auto& instance : set->alg)
+						if constexpr (std::is_base_of<FoldMultiTag, ret_type>::value)
 						{
-							res = instance(StepTag<STEP, Step_Parallel>{});
+							ret_type res = set->alg[0](StepTag<STEP, Step_Parallel>{});
+							for (int i = 1; i < (Z / (THREADS*RO)); ++i)
+							{
+								res = set->alg[i](StepTag<STEP, Step_Parallel>{});
+							}
+
+							merge_pointers[t] = reinterpret_cast<ThreadBatch*>(res.merge_source);
+							mBarrier.WaitSlave();
+							return res.next_step;
 						}
-						return res;
+						else
+						{
+							ret_type res = 0;
+							for (auto& instance : set->alg)
+							{
+								res = instance(StepTag<STEP, Step_Parallel>{});
+							}
+							return res;
+						}
 					}
 				}
 			}
@@ -176,11 +165,39 @@ namespace simd
 					}
 					else
 					{
-						for (auto& instance : set->alg)
+						if constexpr (std::is_base_of<FoldMultiTag, ret_type>::value)
 						{
-							instance(StepTag<STEP, Step_Parallel>{});
+							ret_type res = set->alg_master(StepTag<STEP, Step_Parallel>{});
+							for (int i = 0; i < (Z / (THREADS*RO)) - 1; ++i)
+							{
+								set->alg[i](StepTag<STEP, Step_Parallel>{});
+							}
+
+							mBarrier.WaitMaster();
+
+							for (int tn = 1; tn < THREADS; tn++)
+							{
+								auto mp = reinterpret_cast<decltype(res.merge_source)>(merge_pointers[tn]);
+
+								//sum_gradients(res.merge_source, mp);
+								traverse_accums(res.merge_source, mp, [](auto& lhs, const auto& rhs) { lhs += rhs; });
+							}
+
+							//traverse_gradients(res.merge_target, res.merge_source, [](auto& lhs, const auto& rhs) { lhs = rhs.fold(); });
+							traverse_accums(res.merge_target, res.merge_source, [](auto& lhs, const auto& rhs) { lhs = rhs.fold(); });
+
+							mBarrier.ReleaseMaster();
+
+							return res.next_step;
 						}
-						return set->alg_master(StepTag<STEP, Step_Parallel>{});
+						else
+						{
+							for (auto& instance : set->alg)
+							{
+								instance(StepTag<STEP, Step_Parallel>{});
+							}
+							return set->alg_master(StepTag<STEP, Step_Parallel>{});
+						}
 					}
 				}
 			}

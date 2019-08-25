@@ -159,7 +159,6 @@ namespace simd
 				i1[1] = func(i1[1]);
 				i1[2] = func(i1[2]);
 				i1[3] = func(i1[3]);
-
 			}
 			return *((Derived*)this);
 		}
@@ -187,7 +186,7 @@ namespace simd
 			auto ie = reinterpret_cast<typename avx512::Value<Scalar>::Type*>(((Derived*)(this))->end());
 			auto v = avx512::Value<Scalar>::fill(rhs);
 
-			for (; i1 != ie; i1 += 4)
+			for (; i1 != ie; i1 +=4)
 			{
 				i1[0] = func(i1[0], v);
 				i1[1] = func(i1[1], v);
@@ -217,6 +216,15 @@ namespace simd
 			i1[0] = func(i1[0], i2[0]);
 			return *((Derived*)this);
 		}
+
+		template<class F>
+		Derived& zips(const Scalar& rhs, const F& func)
+		{
+			auto i1 = reinterpret_cast<typename avx512::Value<Scalar>::Type*>(((Derived*)(this))->begin());
+			auto v = avx512::Value<Scalar>::fill(rhs);
+			i1[0] = func(i1[0], v);
+			return *((Derived*)this);
+		}
 	};
 
 	template<class Derived, class Scalar> class ValArrayAVX512_Unrolled<Derived, Scalar, 128> : public ValArrayAVX512_Unrolled<Derived, Scalar, 64>
@@ -238,6 +246,16 @@ namespace simd
 			auto i2 = reinterpret_cast<const typename avx512::Value<Scalar>::Type*>(rhs.begin());
 			i1[0] = func(i1[0], i2[0]);
 			i1[1] = func(i1[1], i2[1]);
+			return *((Derived*)this);
+		}
+
+		template<class F>
+		Derived& zips(const Scalar& rhs, const F& func)
+		{
+			auto i1 = reinterpret_cast<typename avx512::Value<Scalar>::Type*>(((Derived*)(this))->begin());
+			auto v = avx512::Value<Scalar>::fill(rhs);
+			i1[0] = func(i1[0], v);
+			i1[1] = func(i1[1], v);
 			return *((Derived*)this);
 		}
 	};
@@ -265,6 +283,18 @@ namespace simd
 			i1[1] = func(i1[1], i2[1]);
 			i1[2] = func(i1[2], i2[2]);
 			i1[3] = func(i1[3], i2[3]);
+			return *((Derived*)this);
+		}
+
+		template<class F>
+		Derived& zips(const Scalar& rhs, const F& func)
+		{
+			auto i1 = reinterpret_cast<typename avx512::Value<Scalar>::Type*>(((Derived*)(this))->begin());
+			auto v = avx512::Value<Scalar>::fill(rhs);
+			i1[0] = func(i1[0], v);
+			i1[1] = func(i1[1], v);
+			i1[2] = func(i1[2], v);
+			i1[3] = func(i1[3], v);
 			return *((Derived*)this);
 		}
 	};
@@ -302,6 +332,22 @@ namespace simd
 			i1[5] = func(i1[5], i2[5]);
 			i1[6] = func(i1[6], i2[6]);
 			i1[7] = func(i1[7], i2[7]);
+			return *((Derived*)this);
+		}
+
+		template<class F>
+		Derived& zips(const Scalar& rhs, const F& func)
+		{
+			auto i1 = reinterpret_cast<typename avx512::Value<Scalar>::Type*>(((Derived*)(this))->begin());
+			auto v = avx512::Value<Scalar>::fill(rhs);
+			i1[0] = func(i1[0], v);
+			i1[1] = func(i1[1], v);
+			i1[2] = func(i1[2], v);
+			i1[3] = func(i1[3], v);
+			i1[4] = func(i1[4], v);
+			i1[5] = func(i1[5], v);
+			i1[6] = func(i1[6], v);
+			i1[7] = func(i1[7], v);
 			return *((Derived*)this);
 		}
 	};
@@ -361,6 +407,33 @@ namespace simd
 			i1[15] = func(i1[15], i2[15]);
 			return *((Derived*)this);
 		}
+
+		template<class F>
+		Derived& zips(const Scalar& rhs, const F& func)
+		{
+			auto i1 = reinterpret_cast<typename avx512::Value<Scalar>::Type*>(((Derived*)(this))->begin());
+			auto v = avx512::Value<Scalar>::fill(rhs);
+			i1[0] = func(i1[0], v);
+			i1[1] = func(i1[1], v);
+			i1[2] = func(i1[2], v);
+			i1[3] = func(i1[3], v);
+
+			i1[4] = func(i1[4], v);
+			i1[5] = func(i1[5], v);
+			i1[6] = func(i1[6], v);
+			i1[7] = func(i1[7], v);
+			
+			i1[8] = func(i1[8], v);
+			i1[9] = func(i1[9], v);
+			i1[10] = func(i1[10], v);
+			i1[11] = func(i1[11], v);
+
+			i1[12] = func(i1[12], v);
+			i1[13] = func(i1[13], v);
+			i1[14] = func(i1[14], v);
+			i1[15] = func(i1[15], v);
+			return *((Derived*)this);
+		}
 	};
 
 	template<class Derived, class Scalar, int Z> class ValArrayAVX512 : public ValArrayAVX512_Unrolled<Derived, Scalar, Z*sizeof(Scalar)>
@@ -368,7 +441,7 @@ namespace simd
 	public:
 		Derived clone() const { return Derived{*(reinterpret_cast<const Derived*>(this))}; }
 
-		__forceinline Derived& operator+=(const Derived& rhs) { return this->zip(rhs, avx512::plus{}); }
+		__forceinline Derived& operator+=(const Derived& rhs) {	return this->zip(rhs, avx512::plus{});	}
 		__forceinline Derived& operator-=(const Derived& rhs) { return this->zip(rhs, avx512::minus{}); }
 		__forceinline Derived& operator*=(const Derived& rhs) { return this->zip(rhs, avx512::multiplies{}); }
 		__forceinline Derived& operator/=(const Derived& rhs) { return this->zip(rhs, avx512::divides{}); }
