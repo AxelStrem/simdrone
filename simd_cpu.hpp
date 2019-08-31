@@ -4,7 +4,6 @@
 
 #include "simd.hpp"
 #include "simd_array.hpp"
-#include "simd_array_avx512.hpp"
 
 #include <thread>
 #include "sync_line.hpp"
@@ -17,24 +16,15 @@ namespace simd
 {
 	template<class T> using int_t = int;
 
-	namespace tag
-	{
-		struct Auto {};    // Default vectorization: #pragma omp simd
-		struct Avx512 {};  // Force AVX512 via intrinsics
-	}
-
 	namespace cpu
 	{
 		static const int threads_auto = 0;
-
-		template<class Scalar, int Z, class SIMDTag> struct SIMDArray
-		{	using type = AlignedArray<Scalar, Z>;	};
-		template<class Scalar, int Z> struct SIMDArray<Scalar, Z, tag::Avx512>
-		{    using type = AlignedArrayAVX512<Scalar, Z>;	};
-
-		template<template<class DataBatch> typename Algorithm, int Z, class Scalar, int THREADS, template<class DataBatch> typename AlgorithmPrimary = Algorithm, int RO = 64, class SIMDTag = tag::Auto> class Dispatcher
+	   
+		template<template<class DataBatch> typename Algorithm, int Z, class Scalar, int THREADS,
+			template<class DataBatch> typename AlgorithmPrimary = Algorithm, int RO = 64,
+			template<typename, int> typename SIMDArray = AlignedArray> class Dispatcher
 		{
-			using ThreadBatch = typename SIMDArray<Scalar, RO, SIMDTag>::type;
+			using ThreadBatch = typename SIMDArray<Scalar, RO>;
 			using SharedData  = typename Algorithm<ThreadBatch>::Shared;
 			using Accumulator = typename Algorithm<ThreadBatch>::Accumulator;
 

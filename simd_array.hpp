@@ -87,11 +87,11 @@ namespace simd
 
 		Derived clone() const { return Derived{ *(reinterpret_cast<const Derived*>(this)) }; }
 
-		Derived& operator=(const Scalar& rhs) { return this->zips(rhs, func::fill{}); }
-		Derived& operator+=(const Scalar& rhs) { return this->zips(rhs, std::plus{}); }
-		Derived& operator-=(const Scalar& rhs) { return this->zips(rhs, std::minus{}); }
-		Derived& operator*=(const Scalar& rhs) { return this->zips(rhs, std::multiplies{}); }
-		Derived& operator/=(const Scalar& rhs) { return this->zips(rhs, std::divides{}); }
+		Derived& operator=(const Scalar& rhs) { return this->zips(rhs, typename func::fill{}); }
+		Derived& operator+=(const Scalar& rhs) { return this->zips(rhs, std::plus<>{}); }
+		Derived& operator-=(const Scalar& rhs) { return this->zips(rhs, std::minus<>{}); }
+		Derived& operator*=(const Scalar& rhs) { return this->zips(rhs, std::multiplies<>{}); }
+		Derived& operator/=(const Scalar& rhs) { return this->zips(rhs, std::divides<>{}); }
 
 		Derived operator+(const Derived& rhs) const { return clone() += rhs; }
 		Derived operator-(const Derived& rhs) const { return clone() -= rhs; }
@@ -112,7 +112,7 @@ namespace simd
 		friend Derived exp2(const Derived& x) { return x.clone().apply(std::exp2{}); }
 		friend Derived clip_positive(const Derived& x) { return x.clone().apply(func::clip_positive{}); }
 		friend Derived sign_positive(const Derived& x) { return x.clone().apply(func::sign_positive{}); }
-		friend Derived abs(const Derived& x) { return x.clone().apply(func::abs{}); }
+		friend Derived abs(const Derived& x) { return x.clone().apply(typename func::abs{}); }
 	};
 
 	template<class Scalar, int Z> class alignas(64) AlignedArray : public ValArray<AlignedArray<Scalar, Z>, Scalar>

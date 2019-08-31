@@ -18,8 +18,7 @@ namespace simd
 			using Type = __m512; 
 			static __m512 fill(float x)
 			{
-				__m512 r;
-				for (int i = 0; i < 16; ++i) r.m512_f32[i] = x;
+				__m512 r = {x, x, x, x, x, x, x, x, x, x, x, x, x, x, x, x };
 				return r;
 			}
 		};
@@ -28,18 +27,17 @@ namespace simd
 			using Type = __m512d;
 			static __m512d fill(double x)
 			{
-				__m512d r;
-				for (int i = 0; i < 8; ++i) r.m512d_f64[i] = x;
+				__m512d r = { x, x, x, x, x, x, x, x };
 				return r;
 			}
 		};
 		template<>        struct Value<int>
 		{
 			using Type = __m512i;
-			static __m512i fill(int x)
+			static __m512i fill(int32_t x32)
 			{
-				__m512i r;
-				for (int i = 0; i < 16; ++i) r.m512i_i32[i] = x;
+				int64_t x = (static_cast<int64_t>(x32) << 32) | x32;
+				__m512i r = { x, x, x, x, x, x, x, x };
 				return r;
 			}
 		};
@@ -91,15 +89,26 @@ namespace simd
 			__m512i operator()(const __m512i a) const { __m512i zero{};  return _mm512_sub_epi32(zero, a); }
 		};
 
+
+		__m512  load(const __m512* a) { return _mm512_loadu_ps(a); }
+		__m512d load(const __m512d* a) { return _mm512_loadu_pd(a); }
+		__m512i load(const __m512i* a) { return _mm512_loadu_epi32(a); }
+	
+		void store(__m512*  a, const __m512& v) { _mm512_storeu_ps(a, v); }
+		void store(__m512d* a, const __m512d& v) { _mm512_storeu_pd(a, v); }
+		void store(__m512i* a, const __m512i& v) { _mm512_storeu_epi32(a, v); }
+
+
 		struct exp2
 		{
+			// not implemented
 			__m512  operator()(const __m512  a) const
 			{ 
-				return _mm512_exp2a23_ps(a);
+				return a;
 			}
 			__m512d operator()(const __m512d a) const 
 			{
-				return _mm512_exp2a23_pd(a);
+				return a;
 			}
 		};
 
@@ -155,10 +164,10 @@ namespace simd
 			auto ie = reinterpret_cast<typename avx512::Value<Scalar>::Type*>(((Derived*)(this))->end());
 			for (; i1 != ie; i1 += 4)
 			{
-				i1[0] = func(i1[0]);
-				i1[1] = func(i1[1]);
-				i1[2] = func(i1[2]);
-				i1[3] = func(i1[3]);
+				avx512::store(i1 + 0, func(avx512::load(i1 + 0)));
+				avx512::store(i1 + 1, func(avx512::load(i1 + 1)));
+				avx512::store(i1 + 2, func(avx512::load(i1 + 2)));
+				avx512::store(i1 + 3, func(avx512::load(i1 + 3)));
 			}
 			return *((Derived*)this);
 		}
@@ -171,10 +180,10 @@ namespace simd
 			auto ie = reinterpret_cast<typename avx512::Value<Scalar>::Type*>(((Derived*)(this))->end());
 			for (; i1 != ie; i1 += 4, i2 += 4)
 			{
-				i1[0] = func(i1[0], i2[0]);
-				i1[1] = func(i1[1], i2[1]);
-				i1[2] = func(i1[2], i2[2]);
-				i1[3] = func(i1[3], i2[3]);
+				avx512::store(i1 + 0, func(avx512::load(i1 + 0), avx512::load(i2 + 0)));
+				avx512::store(i1 + 1, func(avx512::load(i1 + 1), avx512::load(i2 + 1)));
+				avx512::store(i1 + 2, func(avx512::load(i1 + 2), avx512::load(i2 + 2)));
+				avx512::store(i1 + 3, func(avx512::load(i1 + 3), avx512::load(i2 + 3)));
 			}
 			return *((Derived*)this);
 		}
@@ -188,10 +197,10 @@ namespace simd
 
 			for (; i1 != ie; i1 +=4)
 			{
-				i1[0] = func(i1[0], v);
-				i1[1] = func(i1[1], v);
-				i1[2] = func(i1[2], v);
-				i1[3] = func(i1[3], v);
+				avx512::store(i1 + 0, func(avx512::load(i1 + 0), v));
+				avx512::store(i1 + 1, func(avx512::load(i1 + 1), v));
+				avx512::store(i1 + 2, func(avx512::load(i1 + 2), v));
+				avx512::store(i1 + 3, func(avx512::load(i1 + 3), v));
 			}
 			return *((Derived*)this);
 		}
@@ -204,7 +213,7 @@ namespace simd
 		Derived& apply(const F& func)
 		{
 			auto i1 = reinterpret_cast<typename avx512::Value<Scalar>::Type*>(((Derived*)(this))->begin());
-			i1[0] = func(i1[0]);
+			avx512::store(i1 + 0, func(avx512::load(i1 + 0)));
 			return *((Derived*)this);
 		}
 
@@ -213,7 +222,7 @@ namespace simd
 		{
 			auto i1 = reinterpret_cast<typename avx512::Value<Scalar>::Type*>(((Derived*)(this))->begin());
 			auto i2 = reinterpret_cast<const typename avx512::Value<Scalar>::Type*>(rhs.begin());
-			i1[0] = func(i1[0], i2[0]);
+			avx512::store(i1 + 0, func(avx512::load(i1 + 0), avx512::load(i2 + 0)));
 			return *((Derived*)this);
 		}
 
@@ -222,7 +231,7 @@ namespace simd
 		{
 			auto i1 = reinterpret_cast<typename avx512::Value<Scalar>::Type*>(((Derived*)(this))->begin());
 			auto v = avx512::Value<Scalar>::fill(rhs);
-			i1[0] = func(i1[0], v);
+			avx512::store(i1 + 0, func(avx512::load(i1 + 0), v));
 			return *((Derived*)this);
 		}
 	};
@@ -234,8 +243,8 @@ namespace simd
 		Derived& apply(const F& func)
 		{
 			auto i1 = reinterpret_cast<typename avx512::Value<Scalar>::Type*>(((Derived*)(this))->begin());
-			i1[0] = func(i1[0]);
-			i1[1] = func(i1[1]);
+			avx512::store(i1 + 0, func(avx512::load(i1 + 0)));
+			avx512::store(i1 + 1, func(avx512::load(i1 + 1)));
 			return *((Derived*)this);
 		}
 
@@ -244,8 +253,8 @@ namespace simd
 		{
 			auto i1 = reinterpret_cast<typename avx512::Value<Scalar>::Type*>(((Derived*)(this))->begin());
 			auto i2 = reinterpret_cast<const typename avx512::Value<Scalar>::Type*>(rhs.begin());
-			i1[0] = func(i1[0], i2[0]);
-			i1[1] = func(i1[1], i2[1]);
+			avx512::store(i1 + 0, func(avx512::load(i1 + 0), avx512::load(i2 + 0)));
+			avx512::store(i1 + 1, func(avx512::load(i1 + 1), avx512::load(i2 + 1)));
 			return *((Derived*)this);
 		}
 
@@ -254,8 +263,8 @@ namespace simd
 		{
 			auto i1 = reinterpret_cast<typename avx512::Value<Scalar>::Type*>(((Derived*)(this))->begin());
 			auto v = avx512::Value<Scalar>::fill(rhs);
-			i1[0] = func(i1[0], v);
-			i1[1] = func(i1[1], v);
+			avx512::store(i1 + 0, func(avx512::load(i1 + 0), v));
+			avx512::store(i1 + 1, func(avx512::load(i1 + 1), v));
 			return *((Derived*)this);
 		}
 	};
@@ -267,10 +276,10 @@ namespace simd
 		Derived& apply(const F& func)
 		{
 			auto i1 = reinterpret_cast<typename avx512::Value<Scalar>::Type*>(((Derived*)(this))->begin());
-			i1[0] = func(i1[0]);
-			i1[1] = func(i1[1]);
-			i1[2] = func(i1[2]);
-			i1[3] = func(i1[3]);
+			avx512::store(i1 + 0, func(avx512::load(i1 + 0)));
+			avx512::store(i1 + 1, func(avx512::load(i1 + 1)));
+			avx512::store(i1 + 2, func(avx512::load(i1 + 2)));
+			avx512::store(i1 + 3, func(avx512::load(i1 + 3)));
 			return *((Derived*)this);
 		}
 
@@ -279,10 +288,10 @@ namespace simd
 		{
 			auto i1 = reinterpret_cast<typename avx512::Value<Scalar>::Type*>(((Derived*)(this))->begin());
 			auto i2 = reinterpret_cast<const typename avx512::Value<Scalar>::Type*>(rhs.begin());
-			i1[0] = func(i1[0], i2[0]);
-			i1[1] = func(i1[1], i2[1]);
-			i1[2] = func(i1[2], i2[2]);
-			i1[3] = func(i1[3], i2[3]);
+			avx512::store(i1 + 0, func(avx512::load(i1 + 0), avx512::load(i2 + 0)));
+			avx512::store(i1 + 1, func(avx512::load(i1 + 1), avx512::load(i2 + 1)));
+			avx512::store(i1 + 2, func(avx512::load(i1 + 2), avx512::load(i2 + 2)));
+			avx512::store(i1 + 3, func(avx512::load(i1 + 3), avx512::load(i2 + 3)));
 			return *((Derived*)this);
 		}
 
@@ -291,10 +300,10 @@ namespace simd
 		{
 			auto i1 = reinterpret_cast<typename avx512::Value<Scalar>::Type*>(((Derived*)(this))->begin());
 			auto v = avx512::Value<Scalar>::fill(rhs);
-			i1[0] = func(i1[0], v);
-			i1[1] = func(i1[1], v);
-			i1[2] = func(i1[2], v);
-			i1[3] = func(i1[3], v);
+			avx512::store(i1 + 0, func(avx512::load(i1 + 0), v));
+			avx512::store(i1 + 1, func(avx512::load(i1 + 1), v));
+			avx512::store(i1 + 2, func(avx512::load(i1 + 2), v));
+			avx512::store(i1 + 3, func(avx512::load(i1 + 3), v));
 			return *((Derived*)this);
 		}
 	};
@@ -306,15 +315,15 @@ namespace simd
 		Derived& apply(const F& func)
 		{
 			auto i1 = reinterpret_cast<typename avx512::Value<Scalar>::Type*>(((Derived*)(this))->begin());
-			i1[0] = func(i1[0]);
-			i1[1] = func(i1[1]);
-			i1[2] = func(i1[2]);
-			i1[3] = func(i1[3]);
+			avx512::store(i1 + 0, func(avx512::load(i1 + 0)));
+			avx512::store(i1 + 1, func(avx512::load(i1 + 1)));
+			avx512::store(i1 + 2, func(avx512::load(i1 + 2)));
+			avx512::store(i1 + 3, func(avx512::load(i1 + 3)));
 			
-			i1[4] = func(i1[4]);
-			i1[5] = func(i1[5]);
-			i1[6] = func(i1[6]);
-			i1[7] = func(i1[7]);
+			avx512::store(i1 + 4, func(avx512::load(i1 + 4)));
+			avx512::store(i1 + 5, func(avx512::load(i1 + 5)));
+			avx512::store(i1 + 6, func(avx512::load(i1 + 6)));
+			avx512::store(i1 + 7, func(avx512::load(i1 + 7)));
 			return *((Derived*)this);
 		}
 
@@ -323,15 +332,15 @@ namespace simd
 		{
 			auto i1 = reinterpret_cast<typename avx512::Value<Scalar>::Type*>(((Derived*)(this))->begin());
 			auto i2 = reinterpret_cast<const typename avx512::Value<Scalar>::Type*>(rhs.begin());
-			i1[0] = func(i1[0], i2[0]);
-			i1[1] = func(i1[1], i2[1]);
-			i1[2] = func(i1[2], i2[2]);
-			i1[3] = func(i1[3], i2[3]);
+			avx512::store(i1 + 0, func(avx512::load(i1 + 0), avx512::load(i2 + 0)));
+			avx512::store(i1 + 1, func(avx512::load(i1 + 1), avx512::load(i2 + 1)));
+			avx512::store(i1 + 2, func(avx512::load(i1 + 2), avx512::load(i2 + 2)));
+			avx512::store(i1 + 3, func(avx512::load(i1 + 3), avx512::load(i2 + 3)));
 			
-			i1[4] = func(i1[4], i2[4]);
-			i1[5] = func(i1[5], i2[5]);
-			i1[6] = func(i1[6], i2[6]);
-			i1[7] = func(i1[7], i2[7]);
+			avx512::store(i1 + 4, func(avx512::load(i1 + 4), avx512::load(i2 + 4)));
+			avx512::store(i1 + 5, func(avx512::load(i1 + 5), avx512::load(i2 + 5)));
+			avx512::store(i1 + 6, func(avx512::load(i1 + 6), avx512::load(i2 + 6)));
+			avx512::store(i1 + 7, func(avx512::load(i1 + 7), avx512::load(i2 + 7)));
 			return *((Derived*)this);
 		}
 
@@ -340,14 +349,14 @@ namespace simd
 		{
 			auto i1 = reinterpret_cast<typename avx512::Value<Scalar>::Type*>(((Derived*)(this))->begin());
 			auto v = avx512::Value<Scalar>::fill(rhs);
-			i1[0] = func(i1[0], v);
-			i1[1] = func(i1[1], v);
-			i1[2] = func(i1[2], v);
-			i1[3] = func(i1[3], v);
-			i1[4] = func(i1[4], v);
-			i1[5] = func(i1[5], v);
-			i1[6] = func(i1[6], v);
-			i1[7] = func(i1[7], v);
+			avx512::store(i1 + 0, func(avx512::load(i1 + 0), v));
+			avx512::store(i1 + 1, func(avx512::load(i1 + 1), v));
+			avx512::store(i1 + 2, func(avx512::load(i1 + 2), v));
+			avx512::store(i1 + 3, func(avx512::load(i1 + 3), v));
+			avx512::store(i1 + 4, func(avx512::load(i1 + 4), v));
+			avx512::store(i1 + 5, func(avx512::load(i1 + 5), v));
+			avx512::store(i1 + 6, func(avx512::load(i1 + 6), v));
+			avx512::store(i1 + 7, func(avx512::load(i1 + 7), v));
 			return *((Derived*)this);
 		}
 	};
@@ -359,25 +368,25 @@ namespace simd
 		Derived& apply(const F& func)
 		{
 			auto i1 = reinterpret_cast<typename avx512::Value<Scalar>::Type*>(((Derived*)(this))->begin());
-			i1[0] = func(i1[0]);
-			i1[1] = func(i1[1]);
-			i1[2] = func(i1[2]);
-			i1[3] = func(i1[3]);
+			avx512::store(i1 + 0, func(avx512::load(i1 + 0)));
+			avx512::store(i1 + 1, func(avx512::load(i1 + 1)));
+			avx512::store(i1 + 2, func(avx512::load(i1 + 2)));
+			avx512::store(i1 + 3, func(avx512::load(i1 + 3)));
 			
-			i1[4] = func(i1[4]);
-			i1[5] = func(i1[5]);
-			i1[6] = func(i1[6]);
-			i1[7] = func(i1[7]);
+			avx512::store(i1 + 4, func(avx512::load(i1 + 4)));
+			avx512::store(i1 + 5, func(avx512::load(i1 + 5)));
+			avx512::store(i1 + 6, func(avx512::load(i1 + 6)));
+			avx512::store(i1 + 7, func(avx512::load(i1 + 7)));
 
-			i1[8] = func(i1[8]);
-			i1[9] = func(i1[9]);
-			i1[10] = func(i1[10]);
-			i1[11] = func(i1[11]);
+			avx512::store(i1 + 8, func(avx512::load(i1 + 8)));
+			avx512::store(i1 + 9, func(avx512::load(i1 + 9)));
+			avx512::store(i1 + 10, func(avx512::load(i1 + 10)));
+			avx512::store(i1 + 11, func(avx512::load(i1 + 11)));
 
-			i1[12] = func(i1[12]);
-			i1[13] = func(i1[13]);
-			i1[14] = func(i1[14]);
-			i1[15] = func(i1[15]);
+			avx512::store(i1 + 12, func(avx512::load(i1 + 12)));
+			avx512::store(i1 + 13, func(avx512::load(i1 + 13)));
+			avx512::store(i1 + 14, func(avx512::load(i1 + 14)));
+			avx512::store(i1 + 15, func(avx512::load(i1 + 15)));
 			return *((Derived*)this);
 		}
 
@@ -386,25 +395,25 @@ namespace simd
 		{
 			auto i1 = reinterpret_cast<typename avx512::Value<Scalar>::Type*>(((Derived*)(this))->begin());
 			auto i2 = reinterpret_cast<const typename avx512::Value<Scalar>::Type*>(rhs.begin());
-			i1[0] = func(i1[0], i2[0]);
-			i1[1] = func(i1[1], i2[1]);
-			i1[2] = func(i1[2], i2[2]);
-			i1[3] = func(i1[3], i2[3]);
+			avx512::store(i1 + 0, func(avx512::load(i1 + 0), avx512::load(i2 + 0)));
+			avx512::store(i1 + 1, func(avx512::load(i1 + 1), avx512::load(i2 + 1)));
+			avx512::store(i1 + 2, func(avx512::load(i1 + 2), avx512::load(i2 + 2)));
+			avx512::store(i1 + 3, func(avx512::load(i1 + 3), avx512::load(i2 + 3)));
 
-			i1[4] = func(i1[4], i2[4]);
-			i1[5] = func(i1[5], i2[5]);
-			i1[6] = func(i1[6], i2[6]);
-			i1[7] = func(i1[7], i2[7]);
+			avx512::store(i1 + 4, func(avx512::load(i1 + 4), avx512::load(i2 + 4)));
+			avx512::store(i1 + 5, func(avx512::load(i1 + 5), avx512::load(i2 + 5)));
+			avx512::store(i1 + 6, func(avx512::load(i1 + 6), avx512::load(i2 + 6)));
+			avx512::store(i1 + 7, func(avx512::load(i1 + 7), avx512::load(i2 + 7)));
 
-			i1[8] = func(i1[8], i2[8]);
-			i1[9] = func(i1[9], i2[9]);
-			i1[10] = func(i1[10], i2[10]);
-			i1[11] = func(i1[11], i2[11]);
+			avx512::store(i1 + 8, func(avx512::load(i1 + 8), avx512::load(i2 + 8)));
+			avx512::store(i1 + 9, func(avx512::load(i1 + 9), avx512::load(i2 + 9)));
+			avx512::store(i1 + 10, func(avx512::load(i1 + 10), avx512::load(i2 + 10)));
+			avx512::store(i1 + 11, func(avx512::load(i1 + 11), avx512::load(i2 + 11)));
 
-			i1[12] = func(i1[12], i2[12]);
-			i1[13] = func(i1[13], i2[13]);
-			i1[14] = func(i1[14], i2[14]);
-			i1[15] = func(i1[15], i2[15]);
+			avx512::store(i1 + 12, func(avx512::load(i1 + 12), avx512::load(i2 + 12)));
+			avx512::store(i1 + 13, func(avx512::load(i1 + 13), avx512::load(i2 + 13)));
+			avx512::store(i1 + 14, func(avx512::load(i1 + 14), avx512::load(i2 + 14)));
+			avx512::store(i1 + 15, func(avx512::load(i1 + 15), avx512::load(i2 + 15)));
 			return *((Derived*)this);
 		}
 
@@ -413,25 +422,25 @@ namespace simd
 		{
 			auto i1 = reinterpret_cast<typename avx512::Value<Scalar>::Type*>(((Derived*)(this))->begin());
 			auto v = avx512::Value<Scalar>::fill(rhs);
-			i1[0] = func(i1[0], v);
-			i1[1] = func(i1[1], v);
-			i1[2] = func(i1[2], v);
-			i1[3] = func(i1[3], v);
+			avx512::store(i1 + 0, func(avx512::load(i1 + 0), v));
+			avx512::store(i1 + 1, func(avx512::load(i1 + 1), v));
+			avx512::store(i1 + 2, func(avx512::load(i1 + 2), v));
+			avx512::store(i1 + 3, func(avx512::load(i1 + 3), v));
 
-			i1[4] = func(i1[4], v);
-			i1[5] = func(i1[5], v);
-			i1[6] = func(i1[6], v);
-			i1[7] = func(i1[7], v);
+			avx512::store(i1 + 4, func(avx512::load(i1 + 4), v));
+			avx512::store(i1 + 5, func(avx512::load(i1 + 5), v));
+			avx512::store(i1 + 6, func(avx512::load(i1 + 6), v));
+			avx512::store(i1 + 7, func(avx512::load(i1 + 7), v));
 			
-			i1[8] = func(i1[8], v);
-			i1[9] = func(i1[9], v);
-			i1[10] = func(i1[10], v);
-			i1[11] = func(i1[11], v);
+			avx512::store(i1 + 8, func(avx512::load(i1 + 8), v));
+			avx512::store(i1 + 9, func(avx512::load(i1 + 9), v));
+			avx512::store(i1 + 10, func(avx512::load(i1 + 10), v));
+			avx512::store(i1 + 11, func(avx512::load(i1 + 11), v));
 
-			i1[12] = func(i1[12], v);
-			i1[13] = func(i1[13], v);
-			i1[14] = func(i1[14], v);
-			i1[15] = func(i1[15], v);
+			avx512::store(i1 + 12, func(avx512::load(i1 + 12), v));
+			avx512::store(i1 + 13, func(avx512::load(i1 + 13), v));
+			avx512::store(i1 + 14, func(avx512::load(i1 + 14), v));
+			avx512::store(i1 + 15, func(avx512::load(i1 + 15), v));
 			return *((Derived*)this);
 		}
 	};
